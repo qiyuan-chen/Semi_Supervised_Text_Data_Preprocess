@@ -15,43 +15,45 @@ from augment.eda import eda
 class SemiDataset():
     def __init__(self, file_path, num_sup=0, num_unsup=0, num_dev=0, num_test=0, seed=666):
 
-        self.__file_path = file_path
-        self.__num_sup = num_sup
-        self.__num_unsup = num_unsup
-        self.__num_dev = num_dev
-        self.__num_test = num_test
+        self._file_path = file_path
+        self._num_sup = num_sup
+        self._num_unsup = num_unsup
+        self._num_dev = num_dev
+        self._num_test = num_test
         # the origin dataset without any process
-        self.__origin_train_dataset = self.__read_dataset(type='train')
-        self.__origin_dev_dataset = self.__read_dataset(type='dev')
-        self.__origin_test_dataset = self.__read_dataset(type='test')
+        self._origin_train_dataset = self._read_dataset(type='train')
+        self._origin_dev_dataset = self._read_dataset(type='dev')
+        self._origin_test_dataset = self._read_dataset(type='test')
+
+        if self._origin_train_dataset is not None:
+            self._label = self._origin_train_dataset["label"].unique()
 
         print("Read the dataset successful!\n")
 
         # the dataset after process
-        self.__num_sup = num_sup
-        self.__num_unsup = num_unsup
-        self.__num_dev = num_dev
 
-        self.__sup_dataset = None
-        self.__unsup_dataset = None
-        self.__dev_dataset = None
-        self.__test_dataset = None
-        self.__seed = seed
+        self._sup_dataset = None
+        self._unsup_dataset = None
+        self._dev_dataset = None
+        self._test_dataset = None
+        self._seed = seed
 
         # set the random seed for the whole environment
-        os.environ['PYTHONHASHSEED'] = str(self.__seed)
-        random.seed(self.__seed)
-        np.random.seed(self.__seed)
-        torch.manual_seed(self.__seed)
-        torch.cuda.manual_seed(self.__seed)
-        torch.cuda.manual_seed_all(self.__seed)
+        os.environ['PYTHONHASHSEED'] = str(self._seed)
+        random.seed(self._seed)
+        np.random.seed(self._seed)
+        torch.manual_seed(self._seed)
+        torch.cuda.manual_seed(self._seed)
+        torch.cuda.manual_seed_all(self._seed)
         cudnn.deterministic = True
         cudnn.benchmark = True
+
+        self._folder_name, self._save_path = self._generate_folder_name()
 
         # nltk.download("omw-1.4")
         # nltk.download("wordnet")
 
-    def __read_dataset(self, type='train'):
+    def _read_dataset(self, type='train'):
         """_summary_
 
         Args:
@@ -61,7 +63,7 @@ class SemiDataset():
             pd.DataFrame: Raw dataset, without any pre-processing 
         """
         file_name = type+'.csv'
-        file_path = os.path.join(self.__file_path, file_name)
+        file_path = os.path.join(self._file_path, file_name)
         if os.path.exists(file_path):
             dataset = pd.read_csv(file_path)
             print("Read original {} dataset successful from {}".format(
@@ -71,13 +73,13 @@ class SemiDataset():
             print("ERROR! Read original {} dataset unsuccessful!".format(type))
             return None
 
-    def __clean_dataset(self, dataset, type='train'):
+    def _clean_dataset(self, dataset, type='train'):
         cleaned_dataset = {"sentence": []}
         print("Clean the {} dataset!".format(type))
         for i in tqdm(range(dataset.shape[0])):
             try:
                 cleaned_dataset["sentence"].append(
-                    self.__clean_sentence(dataset["sentence"][i]))
+                    self._clean_sentence(dataset["sentence"][i]))
             except:
                 cleaned_dataset["sentence"].append(dataset["sentence"][i])
 
@@ -85,7 +87,7 @@ class SemiDataset():
 
         return pd.DataFrame.from_dict(cleaned_dataset)
 
-    def __clean_sentence(self, sent):
+    def _clean_sentence(self, sent):
         try:
             sent = sent.replace('\n', ' ').replace(
                 '\\n', ' ').replace('\\', ' ')
@@ -96,7 +98,7 @@ class SemiDataset():
         except:
             return ' '
 
-    def __sample_target_dataset(self, target_dataset: pd.DataFrame, target_length, type='sup'):
+    def _sample_target_dataset(self, target_dataset: pd.DataFrame, target_length, type='sup'):
         return_dataset = pd.DataFrame(columns=["sentence", "label"])
         remain_dataset = pd.DataFrame(columns=["sentence", "label"])
         for label in target_dataset["label"].unique():
@@ -104,7 +106,7 @@ class SemiDataset():
 
             if target_length < current_data.shape[0]:
                 return_data, remain_data = train_test_split(
-                    current_data, train_size=target_length, random_state=self.__seed)
+                    current_data, train_size=target_length, random_state=self._seed)
             else:
                 return_data = current_data
                 remain_data = None
@@ -118,8 +120,8 @@ class SemiDataset():
             type), return_dataset.shape[0])
         return return_dataset, remain_dataset
 
-    def __combine_target_dataset_columns(self, dataframe: pd.DataFrame, sentence_column_names=["sentence"],
-                                         label_colum="label", type='train'):
+    def _combine_target_dataset_columns(self, dataframe: pd.DataFrame, sentence_column_names=["sentence"],
+                                        label_colum="label", type='train'):
         combined_dataset = pd.DataFrame(columns=["sentence", "label"])
         combined_dataset["label"] = dataframe[label_colum]
         try:
@@ -134,84 +136,109 @@ class SemiDataset():
             print("ERROR!Combine the {} dataset's columns unsuccessful!".format(type))
             return
 
-    def dataset_to_csv(self, folder_name="model_required"):
-        file_path = os.path.join(self.__file_path, folder_name)
-        if not os.path.exists(file_path):
-            os.makedirs(file_path)
-        if self.__sup_dataset is not None:
-            file_name = "sup_"+str(self.__num_sup)+".csv"
-            current_path = os.path.join(file_path, file_name)
-            self.__sup_dataset.to_csv(current_path, index=False)
+    def _label_rearrangement(self, dataset):
+        dataset["label"] = dataset["label"]-1
+        return dataset
 
-        if self.__unsup_dataset is not None:
-            file_name = "unsup_"+str(self.__num_unsup)+".csv"
-            current_path = os.path.join(file_path, file_name)
-            self.__unsup_dataset.to_csv(current_path, index=False)
+    def _generate_folder_name(self):
+        folder_name = "{}sup_{}unsup_{}dev_{}test".format(
+            self._num_sup, self._num_unsup, self._num_dev, self._num_test)
 
-        if self.__dev_dataset is not None:
+        save_path = os.path.join(self._file_path, folder_name)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        return folder_name, save_path
+
+    def _write_txt_file(self):
+        txt_path = os.path.join(self._save_path, "readme.txt")
+        with open(txt_path, "w") as f:
+            f.write(
+                "The dataset consists of:\n \
+                {} sup examples,\n \
+                {} unsup examples,\n \
+                {} dev examples,\n \
+                {} test examples".format(self._num_sup, self._num_unsup, self._num_dev, self._num_test))
+
+    def dataset_to_csv(self):
+
+        if self._sup_dataset is not None:
+            file_name = "sup_"+str(self._num_sup)+".csv"
+            current_path = os.path.join(self._save_path, file_name)
+            self._sup_dataset.to_csv(current_path, index=False)
+
+        if self._unsup_dataset is not None:
+            file_name = "unsup_"+str(self._num_unsup)+".csv"
+            current_path = os.path.join(self._save_path, file_name)
+            self._unsup_dataset.to_csv(current_path, index=False)
+
+        if self._dev_dataset is not None:
             file_name = "dev.csv"
-            current_path = os.path.join(file_path, file_name)
-            self.__dev_dataset.to_csv(current_path, index=False)
+            current_path = os.path.join(self._save_path, file_name)
+            self._dev_dataset.to_csv(current_path, index=False)
 
-        if self.__test_dataset is not None:
+        if self._test_dataset is not None:
             file_name = "test.csv"
-            current_path = os.path.join(file_path, file_name)
-            self.__test_dataset.to_csv(current_path, index=False)
+            current_path = os.path.join(self._save_path, file_name)
+            self._test_dataset.to_csv(current_path, index=False)
 
-        print("The whole dataset has been saved in {}\n".format(file_path))
+        print("The whole dataset has been saved in {}\n".format(self._save_path))
 
     def combine_columns(self, sentence_column_names=["sentence"], label_colum="label"):
-        if self.__origin_train_dataset is not None:
-            self.__origin_train_dataset = self.__combine_target_dataset_columns(
-                self.__origin_train_dataset)
+        if self._origin_train_dataset is not None:
+            self._origin_train_dataset = self._combine_target_dataset_columns(
+                self._origin_train_dataset)
 
-        if self.__origin_dev_dataset is not None:
-            self.__origin_dev_dataset = self.__combine_target_dataset_columns(
-                self.__origin_dev_dataset)
+        if self._origin_dev_dataset is not None:
+            self._origin_dev_dataset = self._combine_target_dataset_columns(
+                self._origin_dev_dataset)
 
-        if self.__origin_test_dataset is not None:
-            self.__origin_test_dataset = self.__combine_target_dataset_columns(
-                self.__origin_test_dataset)
+        if self._origin_test_dataset is not None:
+            self._origin_test_dataset = self._combine_target_dataset_columns(
+                self._origin_test_dataset)
 
     def clean_dataset(self, scale=["train", "dev", "test"]):
-        if "train" in scale and self.__origin_train_dataset is not None:
-            self.__origin_train_dataset = self.__clean_dataset(
-                self.__origin_train_dataset, type="train")
+        if "train" in scale and self._origin_train_dataset is not None:
+            self._origin_train_dataset = self._clean_dataset(
+                self._origin_train_dataset, type="train")
 
-        if "dev" in scale and self.__origin_dev_dataset is not None:
-            self.__origin_dev_dataset = self.__clean_dataset(
-                self.__origin_dev_dataset, type="dev")
+        if "dev" in scale and self._origin_dev_dataset is not None:
+            self._origin_dev_dataset = self._clean_dataset(
+                self._origin_dev_dataset, type="dev")
 
-        if "test" in scale and self.__origin_test_dataset is not None:
-            self.__origin_test_dataset = self.__clean_dataset(
-                self.__origin_test_dataset, type="test")
+        if "test" in scale and self._origin_test_dataset is not None:
+            self._origin_test_dataset = self._clean_dataset(
+                self._origin_test_dataset, type="test")
 
         print("Finish cleaning the dataset!\n")
 
     def get_semi_dataset(self, clean=True, data_augmentation=True, return_csv=True):
 
-        # self.__sup_dataset = self.generate_unsup_dataset(self.__sup_dataset)
+        # self._sup_dataset = self.generate_unsup_dataset(self._sup_dataset)
 
         if clean:
             self.clean_dataset()
 
+        self.label_rearrangement()
+
         self.sample()
 
         if data_augmentation:
-            self.generate_unsup_dataset(self.__unsup_dataset)
+            self.generate_unsup_dataset(self._unsup_dataset)
 
         semi_dataset = {}
-        if self.__num_sup != 0:
-            semi_dataset['sup'] = self.__sup_dataset
-        if self.__num_unsup != 0:
-            semi_dataset['unsup'] = self.__unsup_dataset
-        if self.__num_dev != 0:
-            semi_dataset['dev'] = self.__dev_dataset
-        if self.__num_test != 0:
-            semi_dataset['test'] = self.__test_dataset
+        if self._num_sup != 0:
+            semi_dataset['sup'] = self._sup_dataset
+        if self._num_unsup != 0:
+            semi_dataset['unsup'] = self._unsup_dataset
+        if self._num_dev != 0:
+            semi_dataset['dev'] = self._dev_dataset
+        if self._num_test != 0:
+            semi_dataset['test'] = self._test_dataset
 
         if return_csv:
             self.dataset_to_csv()
+
+        self._write_txt_file()
 
         if len(semi_dataset) != 0:
             return semi_dataset
@@ -219,35 +246,47 @@ class SemiDataset():
             print("No Data Returned!")
             return None
 
-    def get_semi_dataset_length(self):
-        semi_dataset_length = {"sup": self.__num_sup,
-                               "unsup": self.__num_unsup,
-                               "dev": self.__num_dev,
-                               "test": self.__num_test}
-        return semi_dataset_length
+    def label_rearrangement(self):
+
+        if min(self._label) == 0:
+            print("Label Correct")
+            return
+
+        if self._origin_train_dataset is not None:
+            self._origin_train_dataset = self._label_rearrangement(
+                self._origin_train_dataset)
+            self._label = self._origin_train_dataset["label"].unique()
+
+        if self._origin_test_dataset is not None:
+            self._origin_test_dataset = self._label_rearrangement(
+                self._origin_test_dataset)
+
+        if self._origin_dev_dataset is not None:
+            self._origin_dev_dataset = self._label_rearrangement(
+                self._origin_dev_dataset)
 
     def sample(self):
         # "type:ignore" means ignore the issues reported by pylance
 
         # sup dataset
-        if self.__origin_train_dataset is not None and self.__num_sup != 0:
-            self.__sup_dataset, self.__origin_train_dataset = self.__sample_target_dataset(
-                self.__origin_train_dataset, self.__num_sup, type='sup')  # type:ignore
+        if self._origin_train_dataset is not None and self._num_sup != 0:
+            self._sup_dataset, self._origin_train_dataset = self._sample_target_dataset(
+                self._origin_train_dataset, self._num_sup, type='sup')  # type:ignore
         # test dataset
-        if self.__origin_test_dataset is not None and self.__num_test != 0:
-            self.__test_dataset, self.__origin_test_dataset = self.__sample_target_dataset(
-                self.__origin_test_dataset, self.__num_test, type='test')  # type:ignore
+        if self._origin_test_dataset is not None and self._num_test != 0:
+            self._test_dataset, self._origin_test_dataset = self._sample_target_dataset(
+                self._origin_test_dataset, self._num_test, type='test')  # type:ignore
         # dev dataset
-        if self.__origin_dev_dataset is None and self.__num_dev != 0:
-            self.__dev_dataset, self.__origin_train_dataset = self.__sample_target_dataset(
-                self.__origin_train_dataset, self.__num_dev, type='dev')  # type:ignore
-        elif self.__origin_dev_dataset is not None and self.__num_dev != 0:
-            self.__dev_dataset, self.__origin_dev_dataset = self.__sample_target_dataset(
-                self.__origin_dev_dataset, self.__num_dev, type='dev')  # type:ignore
+        if self._origin_dev_dataset is None and self._num_dev != 0:
+            self._dev_dataset, self._origin_train_dataset = self._sample_target_dataset(
+                self._origin_train_dataset, self._num_dev, type='dev')  # type:ignore
+        elif self._origin_dev_dataset is not None and self._num_dev != 0:
+            self._dev_dataset, self._origin_dev_dataset = self._sample_target_dataset(
+                self._origin_dev_dataset, self._num_dev, type='dev')  # type:ignore
 
-        if self.__num_unsup != 0:
-            self.__unsup_dataset, self.__origin_train_dataset = self.__sample_target_dataset(
-                self.__origin_train_dataset, self.__num_unsup, type="unsup")  # type:ignore
+        if self._num_unsup != 0:
+            self._unsup_dataset, self._origin_train_dataset = self._sample_target_dataset(
+                self._origin_train_dataset, self._num_unsup, type="unsup")  # type:ignore
 
     def generate_unsup_dataset(self, unsup_dataset_origin):
         unsup_dataset_dict = {"sentence": [], "aug": []}
@@ -265,11 +304,11 @@ class SemiDataset():
             unsup_dataset_dict["sentence"].append(
                 unsup_dataset_origin["sentence"][i])
 
-            if unsuccess_num != 0:
-                print("{} samples without correct augmentation".format(unsuccess_num))
+        if unsuccess_num != 0:
+            print("{} samples without correct augmentation".format(unsuccess_num))
 
         # print(pd.DataFrame.from_dict(unsup_dataset_dict).head())
-        self.__unsup_dataset = pd.DataFrame.from_dict(unsup_dataset_dict)
+        self._unsup_dataset = pd.DataFrame.from_dict(unsup_dataset_dict)
 
 
 if __name__ == "__main__":
