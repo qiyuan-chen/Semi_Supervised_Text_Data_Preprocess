@@ -154,7 +154,7 @@ class ImbalanceSemiDatasetsGenerator(ImbalanceSemiDataset):
             current_path = os.path.join(file_path, file_name)
             current_dataset["test"].to_csv(current_path, index=False)
 
-        print("The whole dataset has been saved in {}\n".format(self._save_path))
+        print("The whole dataset has been saved in {}\n".format(file_path))
 
     def generate_current_unsup_dataset(self, unsup_dataset_origin):
         unsup_dataset_dict = {"sentence": [], "aug": []}

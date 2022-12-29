@@ -122,12 +122,14 @@ class SemiDataset():
 
     def _combine_target_dataset_columns(self, dataframe: pd.DataFrame, sentence_column_names=["sentence"],
                                         label_colum="label", type='train'):
+        dataframe.fillna(" ", inplace=True)
         combined_dataset = pd.DataFrame(columns=["sentence", "label"])
         combined_dataset["label"] = dataframe[label_colum]
+        combined_dataset["sentence"] = dataframe[sentence_column_names[0]]
         try:
-            for column_name in sentence_column_names:
+            for index, column_name in enumerate(sentence_column_names[1:]):
                 combined_dataset["sentence"] = combined_dataset["sentence"] + \
-                    " " + dataframe[column_name]
+                    " "+dataframe[column_name]
 
             print("Combine the {} dataset's columns successful!".format(type))
             return combined_dataset
@@ -186,15 +188,15 @@ class SemiDataset():
     def combine_columns(self, sentence_column_names=["sentence"], label_colum="label"):
         if self._origin_train_dataset is not None:
             self._origin_train_dataset = self._combine_target_dataset_columns(
-                self._origin_train_dataset)
+                self._origin_train_dataset, sentence_column_names, label_colum)
 
         if self._origin_dev_dataset is not None:
             self._origin_dev_dataset = self._combine_target_dataset_columns(
-                self._origin_dev_dataset)
+                self._origin_dev_dataset, sentence_column_names, label_colum)
 
         if self._origin_test_dataset is not None:
             self._origin_test_dataset = self._combine_target_dataset_columns(
-                self._origin_test_dataset)
+                self._origin_test_dataset, sentence_column_names, label_colum)
 
     def clean_dataset(self, scale=["train", "dev", "test"]):
         if "train" in scale and self._origin_train_dataset is not None:
@@ -251,6 +253,8 @@ class SemiDataset():
         if min(self._label) == 0:
             print("Label Correct")
             return
+        else:
+            print("Label is NOT correct!")
 
         if self._origin_train_dataset is not None:
             self._origin_train_dataset = self._label_rearrangement(
